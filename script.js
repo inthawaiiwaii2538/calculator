@@ -12,7 +12,7 @@ function parseAll() {
     let billUnit = text.includes('€') ? '€' : '£';
     let currentCatBase = "ตรง";
     let currentPos = "บน";
-    let currentMode = "single"; 
+    let currentMode = "single"; // single หรือ combined
     let isBothPos = false; 
     
     const lottoPresets = { "กิจ": "เฉพาะกิจ", "กาชาต": "กาชาด", "พิเศษ": "พิเศษ", "ปกติ": "ปกติ", "vip": "VIP", "ลาว": "หวยลาว" };
@@ -30,9 +30,8 @@ function parseAll() {
         if (line.includes("5รอบ")) lInLine = Object.values(lottoPresets).filter(v => v !== "หวยลาว");
         if (lInLine.length > 0) detectedLottos = lInLine;
 
-        // --- 3. ตรวจจับคำสั่งตำแหน่ง (บน/ล่าง/บน-ล่าง) ---
-        // เช็ค บนล่าง ก่อน เพื่อไม่ให้ติดแค่คำว่า บน
-        if (line.match(/บน[-*\s]*ล่าง|บนล่าง|บ-ล|บล/)) {
+        // --- 3. ตรวจหาตำแหน่ง (บน/ล่าง/บน-ล่าง) ---
+        if (line.includes("บน-ล่าง") || line.includes("บ-ล") || line.includes("บล") || line.includes("บนล่าง")) {
             isBothPos = true;
         } else if (line.includes("ล่าง")) {
             isBothPos = false; currentPos = "ล่าง";
@@ -40,17 +39,18 @@ function parseAll() {
             isBothPos = false; currentPos = "บน";
         }
 
-        // --- 4. ตรวจจับคำสั่งประเภท (ตรง/โต๊ด/ตรงโต๊ด) ---
-        if (line.match(/ตรง[*\s]*โต๊ด|ตรง[-*\s]*โตด/)) {
+        // --- 4. ตรวจหาประเภท (ตรง/โต๊ด/ตรงโต๊ด) ---
+        if (line.match(/ตรง.*โต๊ด|ตรง.*โตด|ตรง.*ตด/)) {
             currentMode = "combined";
-            currentCatBase = "ตรง";
-        } else if (line.includes("โต๊ด") || line.includes("โตด") || line.includes("ตด")) {
-            currentMode = "single"; currentCatBase = "โต๊ด";
+            currentCatBase = "ตรง"; // บังคับฐานเป็น "ตรง" เพื่อให้ .replace ทำงานได้
         } else if (line.includes("ตรง")) {
             currentMode = "single"; currentCatBase = "ตรง";
+        } else if (line.includes("โต๊ด") || line.includes("โตด") || line.includes("ตด")) {
+            currentMode = "single"; currentCatBase = "โต๊ด";
         }
 
-        // --- 5. ดึงตัวเลขและยอดเงิน ---
+        // --- 5. ดึงตัวเลขและยอดเงิน (ปรับปรุง Regex ให้ฉลาดขึ้น) ---
+        // รองรับรูปแบบ: 280=1x5 หรือ 280-1*5
         const chainRegex = /((?:\d{2,4}[-,\s]*)+)\s*[=เข:\-]\s*(\d+(?:\.\d+)?)(?:\s*[x*]\s*(\d+(?:\.\d+)?))?/g;
         let match;
         while ((match = chainRegex.exec(line)) !== null) {
@@ -68,14 +68,16 @@ function parseAll() {
                         addEntry(lotto, billNo, cat, "บน", num, amt1, billUnit);
                         addEntry(lotto, billNo, cat, "ล่าง", num, amt2, billUnit);
                         
+                        // ถ้าเป็น ตรงโต๊ด + บนล่าง (จะมาทั้งหมด 4 รายการ)
                         if (currentMode === "combined" && match[3]) {
                             let permCat = (num.length === 2) ? "2ตัว" : prefix + "โต๊ด";
-                            addEntry(lotto, billNo, permCat, "บน", num, parseFloat(match[3]), billUnit);
-                            addEntry(lotto, billNo, permCat, "ล่าง", num, parseFloat(match[3]), billUnit);
+                            addEntry(lotto, billNo, permCat, "บน", num, match[3], billUnit);
+                            addEntry(lotto, billNo, permCat, "ล่าง", num, match[3], billUnit);
                         }
                     } else {
                         // โหมดปกติ
                         addEntry(lotto, billNo, cat, currentPos, num, amt1, billUnit);
+                        // ถ้าเป็น ตรงโต๊ด และมีค่าหลังเครื่องหมาย x
                         if (currentMode === "combined" && match[3]) {
                             let permCat = (num.length === 2) ? "2ตัว" : prefix + "โต๊ด";
                             addEntry(lotto, billNo, permCat, currentPos, num, parseFloat(match[3]), billUnit);
