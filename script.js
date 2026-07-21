@@ -6,18 +6,22 @@ function parseAll() {
     if (!text) return;
 
     const lines = text.split('\n').map(l => l.trim()).filter(l => l !== "");
-    let currentBill = "1";
+    
+    let billNo = "1";
     let detectedLottos = ["หวยลาว"];
-    let currentUnit = text.includes('€') ? '€' : '£';
-    let currentCatBase = "ตรง", currentPos = "บน", currentMode = "single", isBothPos = false;
+    let billUnit = text.includes('€') ? '€' : '£';
+    let currentCatBase = "ตรง";
+    let currentPos = "บน";
+    let currentMode = "single";
+    let isBothPos = false; // ตัวแปรคุม บน-ล่าง
     
     const lottoPresets = { "กิจ": "เฉพาะกิจ", "กาชาต": "กาชาด", "พิเศษ": "พิเศษ", "ปกติ": "ปกติ", "vip": "VIP", "ลาว": "หวยลาว" };
 
     lines.forEach((line, index) => {
-        // --- 1. ตรวจหาเลขบิลจากบรรทัดแรก ---
-        if (index === 0 || !line.includes('=')) {
+        // --- 1. ตรวจหาเลขบิลจากบรรทัดแรกสุด ---
+        if (index === 0) {
             const bMatch = line.match(/^(\d+)/) || line.match(/(?:บิล|Bill)\s*(\d+)/i);
-            if (bMatch && !line.includes('รอบ')) currentBill = bMatch[1];
+            if (bMatch) billNo = bMatch[1];
         }
 
         // --- 2. ตรวจหาชื่อหวย ---
@@ -26,31 +30,49 @@ function parseAll() {
         if (line.includes("5รอบ")) lInLine = Object.values(lottoPresets).filter(v => v !== "หวยลาว");
         if (lInLine.length > 0) detectedLottos = lInLine;
 
-        // --- 3. ตรวจหาตำแหน่งและประเภท ---
-        if (line.match(/บ-ล|บล|บนล่าง/i)) { isBothPos = true; }
-        else if (line.includes("บน")) { isBothPos = false; currentPos = "บน"; }
-        else if (line.includes("ล่าง")) { isBothPos = false; currentPos = "ล่าง"; }
+        // --- 3. ตรวจหาตำแหน่ง (บน/ล่าง/บน-ล่าง) แก้ไขใหม่ตรงนี้ ---
+        if (line.includes("บน-ล่าง") || line.includes("บ-ล") || line.includes("บล") || line.includes("บนล่าง")) {
+            isBothPos = true;
+        } else if (line.includes("ล่าง")) {
+            isBothPos = false;
+            currentPos = "ล่าง";
+        } else if (line.includes("บน")) {
+            isBothPos = false;
+            currentPos = "บน";
+        }
 
-        if (line.match(/ตรง.*โต๊ด|ตรง.*โตด/)) currentMode = "combined";
-        else if (line.includes("ตรง")) { currentMode = "single"; currentCatBase = "ตรง"; }
-        else if (line.includes("โต๊ด") || line.includes("โตด")) { currentMode = "single"; currentCatBase = "โต๊ด"; }
+        // ตรวจหาประเภท (ตรง/โต๊ด)
+        if (line.match(/ตรง.*โต๊ด|ตรง.*โตด/)) {
+            currentMode = "combined";
+        } else if (line.includes("ตรง")) {
+            currentMode = "single"; currentCatBase = "ตรง";
+        } else if (line.includes("โต๊ด") || line.includes("โตด")) {
+            currentMode = "single"; currentCatBase = "โต๊ด";
+        }
 
-        // --- 4. ดึงตัวเลขและยอดเงิน (Chain Parsing รองรับเลขชุดและ บ-ล) ---
+        // --- 4. ดึงตัวเลขและยอดเงิน (รองรับเลขชุด 2-4 หลัก) ---
         const chainRegex = /((?:\d{2,4}[-,\s]*)+)\s*[=xเข:\-]\s*(\d+(?:\.\d+)?)(?:\s*[x*]\s*(\d+(?:\.\d+)?))?/g;
         let match;
         while ((match = chainRegex.exec(line)) !== null) {
             let nums = match[1].split(/[-,\s]+/).filter(n => n.length >= 2);
-            let amt1 = parseFloat(match[2]), amt2 = match[3] ? parseFloat(match[3]) : amt1;
+            let amt1 = parseFloat(match[2]);
+            let amt2 = match[3] ? parseFloat(match[3]) : amt1;
             
             nums.forEach(num => {
                 detectedLottos.forEach(lotto => {
-                    let cat = (num.length === 4) ? "4"+currentCatBase : (num.length === 3) ? "3"+currentCatBase : "2ตัว";
+                    let prefix = (num.length === 4) ? "4" : (num.length === 3) ? "3" : "";
+                    let cat = (num.length === 2) ? "2ตัว" : prefix + currentCatBase;
+
                     if (isBothPos) {
-                        addEntry(lotto, currentBill, cat, "บน", num, amt1, currentUnit);
-                        addEntry(lotto, currentBill, cat, "ล่าง", num, amt2, billUnit); // บิลยูนิตอ้างอิงจากทั้งบิล
+                        // สร้างรายการ บน
+                        addEntry(lotto, billNo, cat, "บน", num, amt1, billUnit);
+                        // สร้างรายการ ล่าง
+                        addEntry(lotto, billNo, cat, "ล่าง", num, amt2, billUnit);
                     } else {
-                        addEntry(lotto, currentBill, cat, currentPos, num, amt1, currentUnit);
-                        if (currentMode === "combined" && match[3]) addEntry(lotto, currentBill, cat.replace("ตรง", "โต๊ด"), currentPos, num, amt2, currentUnit);
+                        addEntry(lotto, billNo, cat, currentPos, num, amt1, billUnit);
+                        if (currentMode === "combined" && match[3]) {
+                            addEntry(lotto, billNo, cat.replace("ตรง", "โต๊ด"), currentPos, num, amt2, billUnit);
+                        }
                     }
                 });
             });
@@ -92,7 +114,7 @@ function renderUI() {
                 <td>${item.inputAmt.toFixed(2)} ${item.symbol}</td>
                 <td>${d28.toFixed(2)} ${item.symbol}</td>
                 <td class="${d22 > 0 ? 'txt-red' : ''}">${d22.toFixed(2)} ${item.symbol}</td>
-                <td><button onclick="removeEntry(${item.id})" style="border:none;cursor:pointer;">❌</button></td>
+                <td><button onclick="removeEntry(${item.id})" style="border:none;background:none;cursor:pointer;">❌</button></td>
             </tr>`;
         });
 
