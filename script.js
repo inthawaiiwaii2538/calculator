@@ -41,7 +41,7 @@ function parseAll() {
         }
 
         // --- 4. ตรวจจับคำสั่งประเภท (ตรง/โต๊ด/ตรงโต๊ด) ---
-        if (line.match(/ตรง[-*\s]*โต๊ด|ตรง[-*\s]*โตด/)) {
+        if (line.match(/ตรง[*\s]*โต๊ด|ตรง[-*\s]*โตด/)) {
             currentMode = "combined";
             currentCatBase = "ตรง";
         } else if (line.includes("โต๊ด") || line.includes("โตด") || line.includes("ตด")) {
