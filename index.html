@@ -3,30 +3,39 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ระบบคำนวณโพย - ล็อคเลขบิลแถวแรก</title>
+    <title>ระบบคำนวณโพย - แบบพับเก็บได้</title>
     <style>
         body { font-family: 'Tahoma', sans-serif; padding: 10px; background-color: #f0f4f8; }
         .card { background: white; padding: 20px; border-radius: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); max-width: 1000px; margin: auto; }
         textarea { width: 100%; height: 200px; padding: 12px; border: 2px solid #1a73e8; border-radius: 8px; font-size: 18px; box-sizing: border-box; }
-        .btn-group { display: flex; gap: 8px; margin-top: 10px; }
-        button { flex: 1; padding: 15px; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; }
-        .btn-parse { background: #1a73e8; color: white; font-size: 16px; }
-        .btn-clear { background: #ea4335; color: white; font-size: 16px; }
         
+        .btn-group { display: flex; gap: 8px; margin-top: 10px; }
+        button { flex: 1; padding: 12px; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; }
+        .btn-parse { background: #1a73e8; color: white; }
+        .btn-clear { background: #ea4335; color: white; }
+        
+        /* สไตล์แถบหัวข้อบิลที่กดพับได้ */
         .bill-header { 
             background: #2c3e50; color: white; padding: 12px; cursor: pointer; 
             display: flex; justify-content: space-between; align-items: center;
             border-radius: 8px; margin-top: 10px; font-weight: bold;
         }
-        .bill-header.active { background: #34495e; border-radius: 8px 8px 0 0; }
-        .bill-content { display: none; background: white; border: 1px solid #ddd; border-radius: 0 0 8px 8px; margin-bottom: 5px; }
+        .bill-header:hover { background: #34495e; }
+        .bill-header::after { content: '▼'; font-size: 12px; }
+        .bill-header.active::after { content: '▲'; }
+
+        /* ส่วนเนื้อหาในบิล */
+        .bill-content { display: none; overflow: hidden; background: white; border: 1px solid #ddd; border-radius: 0 0 8px 8px; }
         .bill-content.show { display: block; }
 
         table { width: 100%; border-collapse: collapse; font-size: 12px; }
         th, td { border: 1px solid #eee; padding: 8px 5px; text-align: center; }
         th { background: #f8f9fa; color: #555; }
-        .lotto-tag { background: #e8f0fe; color: #1a73e8; padding: 2px 4px; border-radius: 3px; font-size: 10px; font-weight: bold; }
+        
+        .lotto-tag { background: #e8f0fe; color: #1a73e8; padding: 1px 4px; border-radius: 3px; font-size: 10px; }
         .txt-red { color: #d93025; font-weight: bold; }
+        
+        /* แถบสรุปยอดในแถบสีเข้ม */
         .header-total { font-size: 13px; opacity: 0.9; }
     </style>
 </head>
@@ -34,110 +43,74 @@
 
 <div class="card">
     <div class="parser-section">
-        <textarea id="rawInput" placeholder="วางบิลที่นี่... เช่น บิล 12 ลาว"></textarea>
+        <textarea id="rawInput" placeholder="คัดลอกบิลมาวางที่นี่..."></textarea>
         <div class="btn-group">
-            <button class="btn-parse" onclick="parseAll()">🚀 วิเคราะห์และสรุปยอด (ล็อคเลขบิลแถวแรก)</button>
+            <button class="btn-parse" onclick="parseAll()">🚀 วิเคราะห์และสรุปยอด</button>
             <button class="btn-clear" onclick="clearAll()">ล้างทั้งหมด</button>
         </div>
     </div>
-    <div id="bill-container"></div>
+
+    <div id="bill-container">
+        <!-- บิลต่างๆ จะมาแสดงตรงนี้แบบพับได้ -->
+    </div>
 </div>
 
 <script>
     let entries = [];
-    let latestAddedBillID = null; 
     const RATE = 1.5; 
 
     function parseAll() {
         const text = document.getElementById('rawInput').value.trim();
         if (!text) return;
 
-        const lines = text.split('\n');
-        
-        // --- 1. ลอจิกหาหมายเลขบิลจาก "แถวแรก" ---
-        let billNo = "1";
-        if (lines.length > 0) {
-            let firstLine = lines[0];
-            // ลบคำที่อาจมีตัวเลขหลอกออกไปก่อน (4ตัว, 6ตัว, 5รอบ)
-            let cleanedFirstLine = firstLine.replace(/\d+(ตัว|รอบ|หลัก|หุ้น)/g, "");
-            // หาตัวเลขชุดแรกที่เหลืออยู่
-            let m = cleanedFirstLine.match(/\d+/);
-            if (m) {
-                billNo = m[0];
-            }
-        }
-        latestAddedBillID = billNo;
-
-        // ตั้งค่าเริ่มต้นของบิลนี้
-        let currentLottos = ["หวยลาว"];
-        let currentUnit = text.includes('€') ? '€' : '£';
+        const lines = text.split('\n').map(l => l.trim()).filter(l => l !== "");
+        let billNo = "1", detectedLottos = ["หวยลาว"], billUnit = text.includes('€') ? '€' : '£';
         let currentCatBase = "ตรง", currentPos = "บน", currentMode = "single", isBothPos = false;
         const lottoPresets = { "กิจ": "เฉพาะกิจ", "กาชาต": "กาชาด", "พิเศษ": "พิเศษ", "ปกติ": "ปกติ", "vip": "VIP", "ลาว": "หวยลาว" };
 
-        lines.forEach((line) => {
-            line = line.trim();
-            if (!line) return;
+        lines.forEach(line => {
+            const bMatch = line.match(/^(\d+)/) || line.match(/(?:บิล|Bill)\s*(\d+)/i);
+            if (bMatch && !line.includes('=')) billNo = bMatch[1];
 
-            // เช็คว่าเป็นแถวหัวข้อหวยหรือไม่ (ไม่ใช่แถวแทงเลข)
-            const isBetLine = line.match(/(\d{2,4})\s*[=xเข:\-]/);
-            if (!isBetLine) {
-                let lFound = [];
-                // ตรวจหาหวย 4ตัว หรือ 6ตัว
-                if (line.includes("ลาว")) {
-                    if (line.includes("4ตัว")) lFound.push("หวยลาว 4 ตัว");
-                    else if (line.includes("6ตัว")) lFound.push("หวยลาว 6 ตัว");
-                    else lFound.push("หวยลาว");
-                }
-                for (let k in lottoPresets) if (k !== "ลาว" && line.toLowerCase().includes(k)) lFound.push(lottoPresets[k]);
-                if (line.includes("5รอบ")) lFound = Object.values(lottoPresets).filter(v => v !== "หวยลาว");
-                if (lFound.length > 0) currentLottos = lFound;
-            }
+            let lInLine = [];
+            for (let k in lottoPresets) if (line.toLowerCase().includes(k)) lInLine.push(lottoPresets[k]);
+            if (line.includes("5รอบ")) lInLine = Object.values(lottoPresets).filter(v => v !== "หวยลาว");
+            if (lInLine.length > 0) detectedLottos = lInLine;
 
-            // ตรวจหาตำแหน่งและประเภท (และจัดการรีเซ็ต บ-ล)
-            if (line.match(/บ-ล|บล|บนล่าง/i)) { 
-                isBothPos = true; 
-            } else if (line.includes("บน") || line.includes("ล่าง") || line.includes("ตรง") || line.includes("โต๊ด") || line.includes("โตด")) {
-                // ถ้าในบรรทัดใหม่มีคำสั่งประเภท แต่ไม่มีคำว่า บ-ล ให้ยกเลิกสถานะ บ-ล เดิม
-                if (!line.match(/บ-ล|บล|บนล่าง/i)) isBothPos = false;
+            if (line.match(/บ-ล|บล|บนล่าง/i)) { isBothPos = true; }
+            else if (line.includes("บน")) { isBothPos = false; currentPos = "บน"; }
+            else if (line.includes("ล่าง")) { isBothPos = false; currentPos = "ล่าง"; }
 
-                if (line.includes("บน")) currentPos = "บน";
-                if (line.includes("ล่าง")) currentPos = "ล่าง";
-                if (line.includes("ตรง")) { currentMode = "single"; currentCatBase = "ตรง"; }
-                if (line.includes("โต๊ด") || line.includes("โตด")) { currentMode = "single"; currentCatBase = "โต๊ด"; }
-                if (line.match(/ตรง.*โต๊ด|ตรง.*โตด/)) currentMode = "combined";
-            }
+            if (line.match(/ตรง.*โต๊ด|ตรง.*โตด/)) currentMode = "combined";
+            else if (line.includes("ตรง")) { currentMode = "single"; currentCatBase = "ตรง"; }
+            else if (line.includes("โต๊ด") || line.includes("โตด")) { currentMode = "single"; currentCatBase = "โต๊ด"; }
 
-            // ดึงข้อมูลตัวเลขแทง (รองรับเครื่องหมายคูณหลากหลาย)
-            const chainRegex = /((?:\d{2,4}[-,\s]*)+)\s*[=xเข:\-]\s*(\d+(?:\.\d+)?)(?:\s*[x*×]\s*(\d+(?:\.\d+)?))?/g;
+            const chainRegex = /((?:\d{2,4}[-,\s]*)+)\s*[=xเข:\-]\s*(\d+(?:\.\d+)?)(?:\s*[x*]\s*(\d+(?:\.\d+)?))?/g;
             let match;
             while ((match = chainRegex.exec(line)) !== null) {
                 let nums = match[1].split(/[-,\s]+/).filter(n => n.length >= 2);
                 let amt1 = parseFloat(match[2]), amt2 = match[3] ? parseFloat(match[3]) : amt1;
-                
                 nums.forEach(num => {
-                    currentLottos.forEach(lotto => {
-                        let prefix = (num.length === 4) ? "4" : (num.length === 3) ? "3" : "2";
-                        let catName = (prefix === "2") ? "2ตัว" : prefix + currentCatBase;
-
+                    detectedLottos.forEach(lotto => {
+                        let cat = (num.length === 4) ? "4"+currentCatBase : (num.length === 3) ? "3"+currentCatBase : "2ตัว";
                         if (isBothPos) {
-                            addEntry(lotto, billNo, catName, "บน", num, amt1, currentUnit);
-                            addEntry(lotto, billNo, catName, "ล่าง", num, amt2, currentUnit);
-                        } else if (currentMode === "combined" && match[3]) {
-                            addEntry(lotto, billNo, prefix + "ตรง", currentPos, num, amt1, currentUnit);
-                            addEntry(lotto, billNo, prefix + "โต๊ด", currentPos, num, amt2, currentUnit);
+                            addEntry(lotto, billNo, cat, "บน", num, amt1, billUnit);
+                            addEntry(lotto, billNo, cat, "ล่าง", num, amt2, billUnit);
                         } else {
-                            addEntry(lotto, billNo, catName, currentPos, num, amt1, currentUnit);
+                            addEntry(lotto, billNo, cat, currentPos, num, amt1, billUnit);
+                            if (currentMode === "combined" && match[3]) addEntry(lotto, billNo, cat.replace("ตรง", "โต๊ด"), currentPos, num, amt2, billUnit);
                         }
                     });
                 });
             }
         });
-
         renderUI();
-        document.getElementById('rawInput').value = ""; 
+        document.getElementById('rawInput').value = "";
     }
 
-    function addEntry(l, b, c, p, n, a, u) { entries.push({ lottoType: l, billNo: b, category: c, position: p, num: n, inputAmt: a, symbol: u, id: Date.now() + Math.random() }); }
+    function addEntry(l, b, c, p, n, a, u) {
+        entries.push({ lottoType: l, billNo: b, category: c, position: p, num: n, inputAmt: a, symbol: u, id: Date.now() + Math.random() });
+    }
 
     function renderUI() {
         const container = document.getElementById('bill-container');
@@ -146,7 +119,9 @@
         let grouped = entries.reduce((acc, obj) => { (acc[obj.billNo] = acc[obj.billNo] || []).push(obj); return acc; }, {});
 
         Object.keys(grouped).sort((a,b) => parseInt(a)-parseInt(b)).forEach(bill => {
-            let bS28 = { '£': 0, '€': 0 }, bS22 = { '£': 0, '€': 0 }, rowsHtml = "";
+            let bS28 = { '£': 0, '€': 0 }, bS22 = { '£': 0, '€': 0 };
+            let rowsHtml = "";
+
             grouped[bill].forEach(item => {
                 let limit = item.category.includes("2ตัว") ? 30 : item.category.includes("ตรง") ? 15 : 50;
                 let inGbp = (item.symbol === "€") ? (item.inputAmt / RATE) : item.inputAmt;
@@ -158,19 +133,46 @@
                 gbpTracking[key] = prevGbp + inGbp;
                 let d28 = (item.symbol === "€") ? g28*RATE : g28, d22 = (item.symbol === "€") ? g22*RATE : g22;
                 bS28[item.symbol] += d28; bS22[item.symbol] += d22;
-                rowsHtml += `<tr><td><span class="lotto-tag">${item.lottoType}</span><br>${item.category} ${item.position}</td><td><b>${item.num}</b></td><td>${item.inputAmt.toFixed(2)}${item.symbol}</td><td>${d28.toFixed(2)}${item.symbol}</td><td class="${d22 > 0 ? 'txt-red' : ''}">${d22.toFixed(2)}${item.symbol}</td><td><button onclick="removeEntry(${item.id})" style="background:none;border:none;cursor:pointer;font-size:16px;">❌</button></td></tr>`;
+
+                rowsHtml += `<tr>
+                    <td><span class="lotto-tag">${item.lottoType}</span><br>${item.category} ${item.position}</td>
+                    <td><b>${item.num}</b></td>
+                    <td>${item.inputAmt.toFixed(2)} ${item.symbol}</td>
+                    <td>${d28.toFixed(2)} ${item.symbol}</td>
+                    <td class="${d22 > 0 ? 'txt-red' : ''}">${d22.toFixed(2)} ${item.symbol}</td>
+                    <td><button onclick="removeEntry(${item.id})" style="background:none;border:none;cursor:pointer;">❌</button></td>
+                </tr>`;
             });
-            const isLatest = (bill === latestAddedBillID);
+
             const billDiv = document.createElement('div');
-            billDiv.innerHTML = `<div class="bill-header ${isLatest ? 'active' : ''}" onclick="toggleBill(this)"><span>📄 บิลที่ ${bill}</span><span class="header-total">28%: ${formatT(bS28)} | <span style="color:#ff7675;">22%: ${formatT(bS22)}</span></span></div><div class="bill-content ${isLatest ? 'show' : ''}"><table><thead><tr><th>รายการ</th><th>เลข</th><th>ยอดรวม</th><th>28%</th><th>22%</th><th>ลบ</th></tr></thead><tbody>${rowsHtml}</tbody></table></div>`;
+            billDiv.innerHTML = `
+                <div class="bill-header" onclick="toggleBill(this)">
+                    <span>📄 บิลที่ ${bill}</span>
+                    <span class="header-total">28%: ${formatT(bS28)} | <span style="color:#ff7675;">22%: ${formatT(bS22)}</span></span>
+                </div>
+                <div class="bill-content">
+                    <table>
+                        <thead><tr><th>รายการ</th><th>เลข</th><th>ยอดรวม</th><th>28%</th><th>22%</th><th>ลบ</th></tr></thead>
+                        <tbody>${rowsHtml}</tbody>
+                    </table>
+                </div>`;
             container.appendChild(billDiv);
         });
     }
 
-    function toggleBill(header) { header.classList.toggle('active'); header.nextElementSibling.classList.toggle('show'); }
-    function formatT(obj) { let r = []; if (obj['£'] > 0) r.push(obj['£'].toFixed(2) + "£"); if (obj['€'] > 0) r.push(obj['€'].toFixed(2) + "€"); return r.length > 0 ? r.join("/") : "0.00"; }
+    function toggleBill(header) {
+        header.classList.toggle('active');
+        const content = header.nextElementSibling;
+        content.classList.toggle('show');
+    }
+
+    function formatT(obj) {
+        let r = []; if (obj['£'] > 0) r.push(obj['£'].toFixed(2) + "£"); if (obj['€'] > 0) r.push(obj['€'].toFixed(2) + "€");
+        return r.length > 0 ? r.join("/") : "0.00";
+    }
+
     function removeEntry(id) { entries = entries.filter(e => e.id !== id); renderUI(); }
-    function clearAll() { if(confirm("ล้างทั้งหมด?")) { entries = []; latestAddedBillID = null; renderUI(); } }
+    function clearAll() { if(confirm("ล้างทั้งหมด?")) { entries = []; renderUI(); } }
 </script>
 
 </body>
