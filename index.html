@@ -3,186 +3,158 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ระบบคำนวณบิลหวย - ลบและแก้ไขได้</title>
+    <title>ระบบบิลหวย (รองรับเลขหาง)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;600&display=swap" rel="stylesheet">
     <style>
-        body { font-family: 'Kanit', sans-serif; background-color: #f0f2f5; }
-        .bill-card { background: white; border-radius: 12px; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1); margin-bottom: 20px; overflow: hidden; }
-        .bill-header { background-color: #334155; color: white; padding: 12px 16px; }
+        body { font-family: 'Kanit', sans-serif; background-color: #f8fafc; }
+        .bill-card { background: white; border-radius: 16px; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1); margin-bottom: 24px; overflow: hidden; border: 1px solid #e2e8f0; }
+        .bill-header { background: linear-gradient(135deg, #1e293b 0%, #334155 100%); color: white; padding: 16px; }
     </style>
 </head>
 <body class="p-4 md:p-8">
     <div class="max-w-5xl mx-auto">
-        <!-- Input Section -->
-        <div class="bg-white rounded-2xl shadow-lg p-6 mb-8">
-            <h1 class="text-2xl font-bold text-gray-800 mb-4 flex items-center gap-2">
-                📝 คัดลอกและวางบิล
-            </h1>
-            <textarea id="inputText" class="w-full h-48 p-4 border-2 border-gray-200 rounded-xl focus:border-blue-500 outline-none font-mono text-sm mb-4" 
-                placeholder="ตัวอย่างการวาง:&#10;บิล1 ลาว&#10;785=2&#10;280=1x5&#10;£"></textarea>
-            <div class="flex gap-2">
-                <button onclick="parseAndAddBills()" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl transition-all shadow-md">
+        <!-- Input Area -->
+        <div class="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 mb-8">
+            <h1 class="text-2xl font-bold text-gray-800 mb-4 italic">📋 วางรายการบิล</h1>
+            <textarea id="inputText" class="w-full h-48 p-4 border-2 border-slate-100 rounded-xl focus:border-blue-500 focus:ring-0 outline-none font-mono text-sm mb-4 bg-slate-50" 
+                placeholder="ตัวอย่าง:&#10;บิล1 ลาว&#10;311-122=15x3หาง&#10;785=2&#10;280=1x5&#10;£"></textarea>
+            <div class="flex gap-3">
+                <button onclick="processInput()" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 rounded-xl transition-all shadow-lg active:scale-95">
                     ประมวลผลข้อมูล
                 </button>
-                <button onclick="clearAll()" class="bg-gray-200 hover:bg-gray-300 text-gray-700 font-bold py-3 px-6 rounded-xl transition-all">
-                    ล้างทั้งหมด
+                <button onclick="clearData()" class="bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold py-4 px-8 rounded-xl transition-all">
+                    ล้างจอ
                 </button>
             </div>
         </div>
 
-        <!-- Bills Display Area -->
-        <div id="billDisplayArea"></div>
+        <!-- Result Area -->
+        <div id="displayArea"></div>
     </div>
 
     <script>
-        let allBills = []; // เก็บข้อมูลบิลทั้งหมด
+        let bills = [];
+        const LIMITS = { '3DIRECT': 15, '3TOAD': 50, '2DIGITS': 30 };
 
-        // การตั้งค่าวงเงินอั้น (ปอนด์ £)
-        const LIMITS_GBP = { '3DIRECT': 15, '3TOAD': 50, '2DIGITS': 30, '4DIRECT': 15 };
-
-        function parseAndAddBills() {
+        function processInput() {
             const text = document.getElementById('inputText').value;
             if (!text.trim()) return;
 
-            // แยกบิลด้วยคำว่า "บิล" หรือแบ่งตามกลุ่มสัญลักษณ์
             const sections = text.split(/บิล\s*(\d+)/).filter(s => s.trim() !== "");
             
             for (let i = 0; i < sections.length; i += 2) {
-                let billId = sections[i].trim();
-                let content = sections[i+1] || sections[i]; // กรณีไม่มีคำว่าบิล
-                
+                let bId = sections[i].match(/^\d+$/) ? sections[i] : (bills.length + 1);
+                let content = sections[i+1] || sections[i];
                 let currency = content.includes('€') ? '€' : '£';
-                let typeOfLottery = content.includes('ลาว') ? 'หวยลาว' : 'หวยฮานอย';
-                
                 let items = [];
+
                 const lines = content.split('\n');
-
                 lines.forEach(line => {
-                    const match = line.match(/(\d+)\s*=\s*([\d.xX*]+)/);
-                    if (match) {
-                        const num = match[1];
-                        const val = match[2];
+                    // 1. เช็คแบบ "หาง" (เช่น 311-122=15x3หาง)
+                    const hangMatch = line.match(/([\d\-\s]+)\s*=\s*([\d.]+)\s*x\s*(\d+)\s*หาง/);
+                    // 2. เช็คแบบ "ตรงโต๊ด" (เช่น 280=1x5)
+                    const toadMatch = line.match(/(\d+)\s*=\s*([\d.]+)\s*[xX*]\s*([\d.]+)/);
+                    // 3. เช็คแบบ "ปกติ" (เช่น 785=2)
+                    const normalMatch = line.match(/(\d+)\s*=\s*([\d.]+)/);
 
-                        if (val.includes('x') || val.includes('*')) {
-                            const [d, t] = val.split(/[x*]/).map(Number);
-                            items.push(calculateItemData(num, d, '3DIRECT', currency, typeOfLottery));
-                            items.push(calculateItemData(num, t, '3TOAD', currency, typeOfLottery));
-                        } else {
-                            let type = num.length === 3 ? '3DIRECT' : (num.length === 2 ? '2DIGITS' : '4DIRECT');
-                            items.push(calculateItemData(num, parseFloat(val), type, currency, typeOfLottery));
-                        }
+                    if (hangMatch) {
+                        const nums = hangMatch[1].split(/[-,\s]+/).filter(n => n.length > 0);
+                        const price = parseFloat(hangMatch[2]);
+                        const hangCount = parseInt(hangMatch[3]);
+                        nums.forEach(n => {
+                            for(let k=0; k<hangCount; k++) {
+                                items.push(createItem(n, price, '3DIRECT', currency, `หางที่ ${k+1}`));
+                            }
+                        });
+                    } else if (toadMatch) {
+                        const n = toadMatch[1];
+                        items.push(createItem(n, parseFloat(toadMatch[2]), '3DIRECT', currency));
+                        items.push(createItem(n, parseFloat(toadMatch[3]), '3TOAD', currency));
+                    } else if (normalMatch) {
+                        const n = normalMatch[1];
+                        let type = n.length === 3 ? '3DIRECT' : '2DIGITS';
+                        items.push(createItem(n, parseFloat(normalMatch[2]), type, currency));
                     }
                 });
 
                 if (items.length > 0) {
-                    allBills.push({ id: billId, currency, items });
+                    bills.push({ id: bId, currency, items });
                 }
             }
             render();
-            document.getElementById('inputText').value = ''; // ล้างช่องกรอกหลังจากกดเพิ่ม
+            document.getElementById('inputText').value = '';
         }
 
-        function calculateItemData(num, amount, type, curr, lotteryName) {
-            let limitGBP = LIMITS_GBP[type] || 30;
-            // ถ้าเป็นเงินยูโร ให้แปลงเป็นปอนด์เพื่อเช็คอั้น (30 ยูโร = 20 ปอนด์ -> หาร 1.5)
+        function createItem(num, amount, type, curr, note = "") {
+            let limit = LIMITS[type] || 30;
             let amountGBP = curr === '€' ? amount / 1.5 : amount;
             
-            let withinLimitGBP = Math.min(amountGBP, limitGBP);
-            let excessGBP = Math.max(0, amountGBP - limitGBP);
-
-            // แปลงกลับเป็นสกุลเงินเดิมเพื่อโชว์ในตาราง
-            let amt28 = curr === '€' ? withinLimitGBP * 1.5 : withinLimitGBP;
-            let amt22 = curr === '€' ? excessGBP * 1.5 : excessGBP;
-
-            let typeThai = "";
-            if(type === '3DIRECT') typeThai = "3ตรง บน";
-            else if(type === '3TOAD') typeThai = "3โต๊ด";
-            else if(type === '2DIGITS') typeThai = "2ตัว บน-ล่าง";
-            else typeThai = "4ตรง";
+            let inLimitGBP = Math.min(amountGBP, limit);
+            let overLimitGBP = Math.max(0, amountGBP - limit);
 
             return {
-                id: Date.now() + Math.random(), // Unique ID สำหรับลบ
-                lotteryName,
-                type: typeThai,
-                num,
+                id: Math.random().toString(36).substr(2, 9),
+                num: num,
+                type: type === '3DIRECT' ? '3ตรง' : (type === '3TOAD' ? '3โต๊ด' : '2ตัว'),
+                note: note,
                 total: amount,
-                amt28,
-                amt22
+                amt28: curr === '€' ? inLimitGBP * 1.5 : inLimitGBP,
+                amt22: curr === '€' ? overLimitGBP * 1.5 : overLimitGBP
             };
         }
 
-        function deleteItem(billIdx, itemId) {
-            allBills[billIdx].items = allBills[billIdx].items.filter(item => item.id !== itemId);
-            // ถ้าบิลนั้นไม่มีรายการเหลือเลย ให้ลบบิลนั้นทิ้ง
-            if (allBills[billIdx].items.length === 0) {
-                allBills.splice(billIdx, 1);
-            }
+        function deleteRow(billIdx, itemId) {
+            bills[billIdx].items = bills[billIdx].items.filter(it => it.id !== itemId);
+            if (bills[billIdx].items.length === 0) bills.splice(billIdx, 1);
             render();
         }
 
-        function clearAll() {
-            if(confirm('ต้องการล้างข้อมูลทั้งหมดหรือไม่?')) {
-                allBills = [];
-                render();
-            }
-        }
+        function clearData() { if(confirm('ล้างข้อมูลทั้งหมด?')) { bills = []; render(); } }
 
         function render() {
-            const area = document.getElementById('billDisplayArea');
+            const area = document.getElementById('displayArea');
             area.innerHTML = '';
 
-            allBills.forEach((bill, billIdx) => {
-                let sum28 = bill.items.reduce((a, b) => a + b.amt28, 0);
-                let sum22 = bill.items.reduce((a, b) => a + b.amt22, 0);
+            bills.forEach((bill, bIdx) => {
+                let s28 = bill.items.reduce((a, b) => a + b.amt28, 0);
+                let s22 = bill.items.reduce((a, b) => a + b.amt22, 0);
 
-                let rows = bill.items.map(item => `
-                    <tr class="border-b hover:bg-gray-50 transition-colors">
-                        <td class="py-3 px-4">
-                            <span class="text-[10px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded font-bold uppercase">${item.lotteryName}</span><br>
-                            <span class="text-sm text-gray-500">${item.type}</span>
-                        </td>
-                        <td class="py-3 px-4 text-center font-bold text-lg text-gray-800">${item.num}</td>
-                        <td class="py-3 px-4 text-center text-gray-700">${item.total.toFixed(2)} ${bill.currency}</td>
-                        <td class="py-3 px-4 text-center text-blue-600 font-semibold">${item.amt28.toFixed(2)} ${bill.currency}</td>
-                        <td class="py-3 px-4 text-center text-red-500 font-semibold">${item.amt22.toFixed(2)} ${bill.currency}</td>
+                let rows = bill.items.map(it => `
+                    <tr class="border-b text-sm hover:bg-slate-50 transition-colors">
+                        <td class="py-3 px-4 text-gray-600">${it.type} <span class="text-[10px] text-blue-500">${it.note}</span></td>
+                        <td class="py-3 px-4 text-center font-bold text-slate-800">${it.num}</td>
+                        <td class="py-3 px-4 text-center">${it.total.toFixed(2)} ${bill.currency}</td>
+                        <td class="py-3 px-4 text-center text-blue-600 font-semibold">${it.amt28.toFixed(2)} ${bill.currency}</td>
+                        <td class="py-3 px-4 text-center text-red-500 font-semibold">${it.amt22.toFixed(2)} ${bill.currency}</td>
                         <td class="py-3 px-4 text-center">
-                            <button onclick="deleteItem(${billIdx}, ${item.id})" class="text-red-400 hover:text-red-600 transition-colors">
-                                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 inline" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                </svg>
-                            </button>
+                            <button onclick="deleteRow(${bIdx}, '${it.id}')" class="text-slate-300 hover:text-red-500 transition-colors">❌</button>
                         </td>
                     </tr>
                 `).join('');
 
                 area.innerHTML += `
-                    <div class="bill-card animate-in fade-in duration-300">
-                        <div class="bill-header flex justify-between items-center bg-slate-800 p-4">
-                            <div class="flex items-center gap-3">
-                                <div class="bg-white/20 p-2 rounded-lg">📄</div>
-                                <h3 class="font-bold text-lg text-white">บิลที่ ${bill.id}</h3>
-                            </div>
-                            <div class="flex gap-4 text-sm font-medium">
-                                <span class="bg-white/10 px-3 py-1 rounded">28%: <span class="text-blue-300">${sum28.toFixed(2)} ${bill.currency}</span></span>
-                                <span class="bg-white/10 px-3 py-1 rounded">22%: <span class="text-red-300">${sum22.toFixed(2)} ${bill.currency}</span></span>
+                    <div class="bill-card animate-in slide-in-from-bottom-4 duration-300">
+                        <div class="bill-header flex justify-between items-center">
+                            <span class="font-bold text-lg">📄 บิลที่ ${bill.id}</span>
+                            <div class="flex gap-4">
+                                <span class="bg-white/20 px-3 py-1 rounded-full text-xs">28%: ${s28.toFixed(2)}${bill.currency}</span>
+                                <span class="bg-red-500/30 px-3 py-1 rounded-full text-xs">22%: ${s22.toFixed(2)}${bill.currency}</span>
                             </div>
                         </div>
                         <div class="overflow-x-auto">
-                            <table class="w-full">
-                                <thead>
-                                    <tr class="bg-gray-100 text-gray-600 text-xs uppercase tracking-wider">
-                                        <th class="py-3 px-4 text-left">รายการ</th>
+                            <table class="w-full text-left border-collapse">
+                                <thead class="bg-slate-50 text-slate-500 text-[11px] uppercase font-bold">
+                                    <tr>
+                                        <th class="py-3 px-4">รายการ</th>
                                         <th class="py-3 px-4 text-center">เลข</th>
                                         <th class="py-3 px-4 text-center">ยอดรวม</th>
-                                        <th class="py-3 px-4 text-center text-blue-600">28% (ในอั้น)</th>
-                                        <th class="py-3 px-4 text-center text-red-500">22% (เกิน)</th>
+                                        <th class="py-3 px-4 text-center">28%</th>
+                                        <th class="py-3 px-4 text-center">22%</th>
                                         <th class="py-3 px-4 text-center">ลบ</th>
                                     </tr>
                                 </thead>
-                                <tbody>
-                                    ${rows}
-                                </tbody>
+                                <tbody>${rows}</tbody>
                             </table>
                         </div>
                     </div>
