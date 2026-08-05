@@ -3,142 +3,150 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ระบบคำนวณบิลหวย (V.3)</title>
+    <title>ระบบจัดการบิลหวย</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;600&display=swap" rel="stylesheet">
-    <style>body { font-family: 'Kanit', sans-serif; background-color: #f0f4f8; }</style>
+    <style>
+        body { font-family: 'Kanit', sans-serif; background-color: #f3f4f6; }
+        .bill-header { background-color: #2d3e50; color: white; }
+    </style>
 </head>
 <body class="p-4">
     <div class="max-w-4xl mx-auto">
-        <div class="bg-white p-6 rounded-3xl shadow-xl border-t-8 border-blue-600 mb-6">
-            <h1 class="text-xl font-bold text-gray-800 mb-4">📝 วางบิลหวย (รองรับหลายบิล)</h1>
-            <textarea id="inputData" class="w-full h-80 p-4 border-2 border-gray-100 rounded-2xl focus:border-blue-400 outline-none font-mono text-sm mb-4" 
-            placeholder="บิล1 ลาว...&#10;280=1×5&#10;£&#10;&#10;บิล2 ลาว...&#10;280=5&#10;€"></textarea>
-            
-            <div class="grid grid-cols-2 gap-4">
-                <button onclick="calculate()" class="bg-blue-600 text-white font-bold py-4 rounded-2xl hover:bg-blue-700 shadow-lg transition-all">
-                    คำนวณบิลทั้งหมด
-                </button>
-                <button onclick="clearData()" class="bg-gray-100 text-gray-500 font-bold py-4 rounded-2xl hover:bg-gray-200 transition-all">
-                    ล้างข้อมูล
-                </button>
-            </div>
+        <!-- ส่วนกรอกข้อมูล -->
+        <div class="bg-white rounded-xl shadow-md p-6 mb-6">
+            <h2 class="text-xl font-bold mb-4 text-gray-800">คัดลอกและวางบิลที่นี่</h2>
+            <textarea id="inputText" class="w-full h-48 p-4 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none font-mono text-sm" placeholder="บิล1 ลาว&#10;785=2&#10;280=1x5&#10;£"></textarea>
+            <button onclick="processBills()" class="mt-4 w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-lg transition-all">
+                ประมวลผลข้อมูล
+            </button>
         </div>
 
-        <div class="bg-blue-600 text-white rounded-t-2xl px-6 py-3 flex justify-between font-bold text-sm shadow-lg">
-            <div class="w-16 text-center">บิล</div>
-            <div class="w-16 text-center">เงิน</div>
-            <div class="flex-1 text-center">28%</div>
-            <div class="flex-1 text-center">22%</div>
-        </div>
-        <div id="resultBody" class="bg-white rounded-b-2xl shadow-xl overflow-hidden mb-10">
-            <!-- ผลลัพธ์จะแสดงที่นี่ -->
-            <div class="p-10 text-center text-gray-400">ยังไม่มีข้อมูล... กรุณาวางบิลแล้วกดคำนวณ</div>
+        <!-- ส่วนแสดงผลบิล -->
+        <div id="billContainer" class="space-y-6">
+            <!-- บิลแต่ละอันจะถูกสร้างที่นี่ -->
         </div>
     </div>
 
     <script>
-        const LIMITS = { '2D': 30, '3D': 15, '3T': 50, '4D': 15 };
+        // ตั้งค่าตัวแปร
+        const LIMITS_GBP = { '3DIRECT': 15, '3TOAD': 50, '2DIGITS': 30, '4DIRECT': 15 };
 
-        function calculate() {
-            const rawText = document.getElementById('inputData').value;
-            const resultBody = document.getElementById('resultBody');
+        function processBills() {
+            const text = document.getElementById('inputText').value;
+            const container = document.getElementById('billContainer');
+            container.innerHTML = '';
+
+            // แยกบิลด้วยคำว่า "บิล"
+            const billBlocks = text.split(/บิล\s*\d+/).filter(b => b.trim() !== "");
             
-            if (!rawText.trim()) {
-                alert("กรุณาใส่ข้อมูลบิล");
-                return;
-            }
-
-            resultBody.innerHTML = '';
-            const globalAccumulator = {}; // เก็บยอดสะสมของเลขแต่ละตัว
-
-            // วิธีแยกบิลใหม่: แยกตามคำว่า "บิล" หรือ "บรรทัดใหม่ที่ขึ้นต้นด้วยเลข"
-            const rawBlocks = rawText.split(/\n(?=บิล|\d+)/g);
-            
-            let billCount = 0;
-
-            rawBlocks.forEach((block) => {
-                if (!block.trim()) return;
-
-                let currency = block.includes('€') ? '€' : '£';
-                let bill28 = 0;
-                let bill22 = 0;
-                let hasData = false;
-
+            billBlocks.forEach((block, index) => {
+                const currency = block.includes('€') ? '€' : '£';
                 const lines = block.split('\n');
+                let billItems = [];
+                let totalSum28 = 0;
+                let totalSum22 = 0;
+
                 lines.forEach(line => {
-                    // ตรวจจับตัวเลขหวย num=price
-                    const match = line.match(/([\d-]+)\s*=\s*([\d.xX*×]+)/);
+                    const match = line.match(/(\d+)\s*=\s*([\d.xX*]+)/);
                     if (match) {
-                        hasData = true;
-                        let numPart = match[1];
-                        let pricePart = match[2];
-                        let numbers = numPart.includes('-') ? numPart.split('-') : [numPart];
+                        const num = match[1];
+                        const val = match[2];
 
-                        // แยกยอดเงิน รองรับ x, X, *, ×
-                        let priceSubItems = pricePart.split(/[xX*×]/).filter(s => s !== "").map(Number);
-                        
-                        numbers.forEach(num => {
-                            priceSubItems.forEach((amt, pIndex) => {
-                                let type = "2D";
-                                if (num.length === 3) {
-                                    if (pIndex === 1 || line.includes("โต๊ด")) type = "3T";
-                                    else type = "3D";
-                                } else if (num.length === 4) {
-                                    type = "4D";
-                                }
-
-                                let key = `${type}-${num}`;
-                                let amtGBP = currency === '€' ? amt / 1.5 : amt;
-
-                                let alreadyUsed = globalAccumulator[key] || 0;
-                                let limit = LIMITS[type] || 30;
-
-                                let canFit = Math.max(0, limit - alreadyUsed);
-                                let portion28 = Math.min(amtGBP, canFit);
-                                let portion22 = Math.max(0, amtGBP - canFit);
-
-                                // บวกยอดกลับเป็นสกุลเงินเดิมของบิลนั้น
-                                bill28 += (currency === '€' ? portion28 * 1.5 : portion28);
-                                bill22 += (currency === '€' ? portion22 * 1.5 : portion22);
-
-                                globalAccumulator[key] = alreadyUsed + amtGBP;
-                            });
-                        });
+                        if (val.includes('x') || val.includes('*')) {
+                            const [d, t] = val.split(/[x*]/).map(Number);
+                            billItems.push(calculateSplit(num, d, '3DIRECT', currency));
+                            billItems.push(calculateSplit(num, t, '3TOAD', currency));
+                        } else {
+                            let type = num.length === 3 ? '3DIRECT' : (num.length === 2 ? '2DIGITS' : '4DIRECT');
+                            billItems.push(calculateSplit(num, parseFloat(val), type, currency));
+                        }
                     }
                 });
 
-                if (hasData) {
-                    billCount++;
-                    addResultRow(billCount, currency, bill28, bill22);
+                if (billItems.length > 0) {
+                    totalSum28 = billItems.reduce((s, i) => s + i.amt28, 0);
+                    totalSum22 = billItems.reduce((s, i) => s + i.amt22, 0);
+                    renderBill(index + 1, billItems, totalSum28, totalSum22, currency);
                 }
             });
-
-            if (billCount === 0) {
-                resultBody.innerHTML = '<div class="p-10 text-center text-red-500">ตรวจไม่พบตัวเลขในรูปแบบ 123=50 <br>กรุณาตรวจสอบว่ามีเครื่องหมาย = หรือไม่</div>';
-            }
         }
 
-        function addResultRow(id, curr, val28, val22) {
-            const resultBody = document.getElementById('resultBody');
-            const row = document.createElement('div');
-            row.className = "flex justify-between items-center px-6 py-4 border-b border-gray-50 hover:bg-blue-50 transition-all";
-            row.innerHTML = `
-                <div class="w-16 text-center font-bold text-gray-500">${id}</div>
-                <div class="w-16 text-center font-bold ${curr === '€' ? 'text-blue-600' : 'text-green-600'}">${curr}</div>
-                <div class="flex-1 text-center font-semibold text-gray-800 text-lg">${formatNum(val28)}</div>
-                <div class="flex-1 text-center font-semibold text-red-500 text-lg">${formatNum(val22)}</div>
+        function calculateSplit(num, amount, type, curr) {
+            let limitGBP = LIMITS_GBP[type];
+            let amountGBP = curr === '€' ? amount / 1.5 : amount;
+            
+            let withinLimitGBP = Math.min(amountGBP, limitGBP);
+            let excessGBP = Math.max(0, amountGBP - limitGBP);
+
+            // แปลงกลับเป็นสกุลเงินต้นทางเพื่อแสดงผล
+            let amt28 = curr === '€' ? withinLimitGBP * 1.5 : withinLimitGBP;
+            let amt22 = curr === '€' ? excessGBP * 1.5 : excessGBP;
+
+            let typeThai = "";
+            if(type === '3DIRECT') typeThai = "3ตรง บน";
+            else if(type === '3TOAD') typeThai = "3โต๊ด";
+            else if(type === '2DIGITS') typeThai = "2ตัว บน-ล่าง";
+            else typeThai = "4ตรง";
+
+            return {
+                type: typeThai,
+                num: num,
+                total: amount,
+                amt28: amt28,
+                amt22: amt22
+            };
+        }
+
+        function renderBill(id, items, sum28, sum22, curr) {
+            const container = document.getElementById('billContainer');
+            let rows = items.map(item => `
+                <tr class="border-b text-center text-sm md:text-base">
+                    <td class="py-4 text-left pl-4">
+                        <span class="bg-blue-100 text-blue-700 text-xs px-2 py-0.5 rounded">หวยลาว</span><br>
+                        <span class="text-gray-600">${item.type}</span>
+                    </td>
+                    <td class="font-bold text-lg">${item.num}</td>
+                    <td>${item.total.toFixed(2)} ${curr}</td>
+                    <td class="text-blue-600 font-semibold">${item.amt28.toFixed(2)} ${curr}</td>
+                    <td class="text-red-500 font-semibold">${item.amt22.toFixed(2)} ${curr}</td>
+                    <td><button class="text-red-400 hover:text-red-600 text-xl">❌</button></td>
+                </tr>
+            `).join('');
+
+            const billHtml = `
+                <div class="bg-white rounded-xl shadow-lg overflow-hidden border border-gray-200">
+                    <div class="bill-header p-4 flex justify-between items-center">
+                        <div class="flex items-center gap-2">
+                            <span class="text-2xl">📄</span>
+                            <span class="text-xl font-bold">บิลที่ ${id}</span>
+                        </div>
+                        <div class="text-right">
+                            <span class="text-gray-300">28%: </span><span class="font-bold">${sum28.toFixed(2)}${curr}</span>
+                            <span class="mx-2">|</span>
+                            <span class="text-red-400">22%: </span><span class="font-bold text-red-400">${sum22.toFixed(2)}${curr}</span>
+                        </div>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="w-full">
+                            <thead>
+                                <tr class="bg-gray-50 text-gray-500 text-sm border-b">
+                                    <th class="py-3 pl-4 text-left">รายการ</th>
+                                    <th>เลข</th>
+                                    <th>ยอดรวม</th>
+                                    <th>28%</th>
+                                    <th>22%</th>
+                                    <th>ลบ</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${rows}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
             `;
-            resultBody.appendChild(row);
-        }
-
-        function formatNum(n) {
-            return n === 0 ? "0" : Number(n.toFixed(2)).toString();
-        }
-
-        function clearData() {
-            document.getElementById('inputData').value = '';
-            document.getElementById('resultBody').innerHTML = '<div class="p-10 text-center text-gray-400">ยังไม่มีข้อมูล... กรุณาวางบิลแล้วกดคำนวณ</div>';
+            container.innerHTML += billHtml;
         }
     </script>
 </body>
